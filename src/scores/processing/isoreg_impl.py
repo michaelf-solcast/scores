@@ -203,11 +203,15 @@ def isotonic_fit(  # pylint: disable=too-many-locals, too-many-arguments
     if bootstraps:
         lower_pts = lower_func(unique_fcst_sorted)
         upper_pts = upper_func(unique_fcst_sorted)
+    decomposition = _isoreg_score_decomposition(
+        fcst_tidied, obs_tidied, weight_tidied, unique_fcst_sorted, regression_values, functional, quantile_level
+    )
     results = {
         "fcst_sorted": unique_fcst_sorted,
         "fcst_counts": fcst_counts,
         "regression_values": regression_values,
         "regression_func": ir_func,
+        "score_decomposition": decomposition,
         "confidence_band_lower_values": lower_pts,
         "confidence_band_upper_values": upper_pts,
         "confidence_band_lower_func": lower_func,
@@ -642,3 +646,7 @@ def _nanquantile(arr: np.ndarray, quant: float) -> np.ndarray:
     ceil_frac_val = arr[index_ceil, np.arange(arr.shape[1])] * ceil_frac
     result = np.where(same_index, floor_val, floor_frac_val + ceil_frac_val)
     return result
+
+
+def _isoreg_score_decomposition():
+    pass
