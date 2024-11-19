@@ -19,6 +19,9 @@ import xarray as xr
 from scipy import interpolate
 from sklearn.isotonic import IsotonicRegression
 
+from scores.continuous.quantile_loss_impl import quantile_score
+from scores.continuous.standard_impl import mse
+
 
 def isotonic_fit(  # pylint: disable=too-many-locals, too-many-arguments
     fcst: Union[np.ndarray, xr.DataArray],
@@ -203,9 +206,21 @@ def isotonic_fit(  # pylint: disable=too-many-locals, too-many-arguments
     if bootstraps:
         lower_pts = lower_func(unique_fcst_sorted)
         upper_pts = upper_func(unique_fcst_sorted)
-    decomposition = _isoreg_score_decomposition(
-        fcst_tidied, obs_tidied, weight_tidied, unique_fcst_sorted, regression_values, functional, quantile_level
+
+    decomposition = (
+        None
+        if functional is None
+        else _isoreg_score_decomposition(
+            fcst_tidied,
+            obs_tidied,
+            weight_tidied,
+            unique_fcst_sorted,
+            regression_values,
+            functional,
+            quantile_level,
+        )
     )
+
     results = {
         "fcst_sorted": unique_fcst_sorted,
         "fcst_counts": fcst_counts,
@@ -648,5 +663,37 @@ def _nanquantile(arr: np.ndarray, quant: float) -> np.ndarray:
     return result
 
 
-def _isoreg_score_decomposition():
-    pass
+def _isoreg_score_decomposition(
+    fcst: np.ndarray,
+    obs: np.ndarray,
+    weight: np.ndarray,
+    unique_fcst_sorted: np.ndarray,
+    regression_values: np.ndarray,
+    functional: str,
+    quantile_level: Optional[float],
+) -> dict[str, float]:
+    indices = np.searchsorted(unique_fcst_sorted, fcst)
+    fcst_recalibrated = np.take(regression_values, indices)
+
+    if functional == "quantile":
+        loss = partial(quantile_score, alpha=quantile_level)
+        x_0 = np.quantile(obs, quantile_level, weights=weight)
+    elif functional == "mean":
+        loss = mse
+        x_0 = np.mean(obs, weights=weight)
+
+    fcst = xr.DataArray(fcst)
+    fcst_recalibrated = xr.DataArray(fcst_recalibrated)
+    obs = xr.DataArray(obs)
+
+    score = loss(fcst, obs, weights=weight)
+    score_recalibrated = loss(fcst_recalibrated, obs, weights=weight)
+    score_marginal = loss(xr.full_like(fcst, x_0), obs, weights=weight)
+    miscalibration = score - score_recalibrated
+    discrimination = score_marginal - score_recalibrated
+    uncertainty = score_marginal
+    return {
+        "miscalibration": miscalibration,
+        "discrimination": discrimination,
+        "uncertainty": uncertainty,
+    }  # type: ignore
